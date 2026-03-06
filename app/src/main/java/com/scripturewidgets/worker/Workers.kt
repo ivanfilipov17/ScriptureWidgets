@@ -24,8 +24,11 @@ import kotlinx.coroutines.flow.first
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
-// ── Verse Notification Worker ─────────────────────────────────────
-// Fires at a specific scheduled time, picks a random verse, sends notification
+// ══════════════════════════════════════════════════════════════════
+// Verse Notification Worker
+// Handles both interval-based (every 1h, 4h, etc.) and
+// time-based (fixed daily schedule) notifications
+// ══════════════════════════════════════════════════════════════════
 @HiltWorker
 class VerseNotificationWorker @AssistedInject constructor(
     @Assisted private val context: Context,
@@ -39,20 +42,19 @@ class VerseNotificationWorker @AssistedInject constructor(
             val enabled = preferences.notificationsEnabled.first()
             if (!enabled) return Result.success()
 
-            // Read category from inputData (each schedule can have its own category)
             val categoryName = inputData.getString(KEY_CATEGORY) ?: VerseCategory.ALL.name
-            val category = runCatching { VerseCategory.valueOf(categoryName) }.getOrDefault(VerseCategory.ALL)
-
-            val verse = verseRepository.getRandomVerse(category) ?: return Result.retry()
-            val scheduleLabel = inputData.getString(KEY_LABEL) ?: "Scripture Widgets"
+            val category     = runCatching { VerseCategory.valueOf(categoryName) }.getOrDefault(VerseCategory.ALL)
+            val verse        = verseRepository.getRandomVerse(category) ?: return Result.retry()
+            val label        = inputData.getString(KEY_LABEL) ?: "Scripture"
+            val notifId      = inputData.getInt(KEY_NOTIF_ID, NOTIFICATION_ID_BASE)
 
             sendVerseNotification(
-                context     = context,
-                verseText   = verse.text,
-                reference   = verse.fullReference,
-                notifId     = inputData.getInt(KEY_NOTIF_ID, NOTIFICATION_ID_BASE),
-                channelId   = CHANNEL_ID,
-                title       = scheduleLabel
+                context   = context,
+                verseText = verse.text,
+                reference = verse.fullReference,
+                notifId   = notifId,
+                channelId = CHANNEL_ID,
+                title     = label
             )
             Result.success()
         } catch (e: Exception) {
@@ -61,19 +63,62 @@ class VerseNotificationWorker @AssistedInject constructor(
     }
 
     companion object {
-        const val WORK_NAME_PREFIX  = "verse_notif_"
-        const val CHANNEL_ID        = "verse_notification_channel"
+        const val WORK_NAME_PREFIX     = "verse_notif_"
+        const val WORK_INTERVAL_PREFIX = "verse_interval_"
+        const val CHANNEL_ID           = "verse_notification_channel"
         const val NOTIFICATION_ID_BASE = 2000
-        const val KEY_CATEGORY      = "category"
-        const val KEY_LABEL         = "label"
-        const val KEY_NOTIF_ID      = "notif_id"
+        const val KEY_CATEGORY         = "category"
+        const val KEY_LABEL            = "label"
+        const val KEY_NOTIF_ID         = "notif_id"
 
-        // Schedule a single notification for a given time today (or tomorrow if passed)
-        fun scheduleOne(context: Context, schedule: NotificationSchedule) {
-            if (!schedule.enabled) {
-                cancelOne(context, schedule.id)
-                return
+        // ── Schedule by INTERVAL (every N hours) ─────────────────
+        fun scheduleByFrequency(
+            context:   Context,
+            frequency: NotificationFrequency,
+            category:  VerseCategory = VerseCategory.ALL
+        ) {
+            if (frequency == NotificationFrequency.CUSTOM) return
+
+            // Cancel any old interval work first
+            WorkManager.getInstance(context).cancelAllWorkByTag(TAG_INTERVAL)
+
+            val (interval, unit) = when (frequency) {
+                NotificationFrequency.EVERY_30_MIN  -> Pair(30L,  TimeUnit.MINUTES)
+                NotificationFrequency.HOURLY         -> Pair(1L,   TimeUnit.HOURS)
+                NotificationFrequency.EVERY_2_HOURS  -> Pair(2L,   TimeUnit.HOURS)
+                NotificationFrequency.EVERY_4_HOURS  -> Pair(4L,   TimeUnit.HOURS)
+                NotificationFrequency.EVERY_6_HOURS  -> Pair(6L,   TimeUnit.HOURS)
+                NotificationFrequency.TWICE_DAILY    -> Pair(12L,  TimeUnit.HOURS)
+                NotificationFrequency.ONCE_DAILY     -> Pair(24L,  TimeUnit.HOURS)
+                else -> return
             }
+
+            val data = workDataOf(
+                KEY_CATEGORY to category.name,
+                KEY_LABEL    to frequency.displayName,
+                KEY_NOTIF_ID to NOTIFICATION_ID_BASE
+            )
+
+            val request = PeriodicWorkRequestBuilder<VerseNotificationWorker>(interval, unit)
+                .setInputData(data)
+                .addTag(TAG_INTERVAL)
+                .setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                    .build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "${WORK_INTERVAL_PREFIX}main",
+                ExistingPeriodicWorkPolicy.UPDATE,
+                request
+            )
+        }
+
+        // ── Schedule a single FIXED TIME notification ──────────────
+        fun scheduleOne(context: Context, schedule: NotificationSchedule) {
+            if (!schedule.enabled) { cancelOne(context, schedule.id); return }
+
             val delay = calcDelayMs(schedule.hour, schedule.minute)
             val data  = workDataOf(
                 KEY_CATEGORY to schedule.category.name,
@@ -83,7 +128,10 @@ class VerseNotificationWorker @AssistedInject constructor(
             val request = PeriodicWorkRequestBuilder<VerseNotificationWorker>(1, TimeUnit.DAYS)
                 .setInitialDelay(delay, TimeUnit.MILLISECONDS)
                 .setInputData(data)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_REQUIRED).build())
+                .addTag(TAG_SCHEDULE)
+                .setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                    .build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES)
                 .build()
 
@@ -94,18 +142,21 @@ class VerseNotificationWorker @AssistedInject constructor(
             )
         }
 
-        // Schedule ALL notifications from the user's schedule list
-        fun scheduleAll(context: Context, schedules: List<NotificationSchedule>) {
+        fun scheduleAll(context: Context, schedules: List<NotificationSchedule>) =
             schedules.forEach { scheduleOne(context, it) }
-        }
 
-        fun cancelOne(context: Context, scheduleId: Int) {
+        fun cancelOne(context: Context, scheduleId: Int) =
             WorkManager.getInstance(context).cancelUniqueWork("$WORK_NAME_PREFIX$scheduleId")
-        }
+
+        fun cancelIntervalWork(context: Context) =
+            WorkManager.getInstance(context).cancelAllWorkByTag(TAG_INTERVAL)
+
+        fun cancelScheduleWork(context: Context) =
+            WorkManager.getInstance(context).cancelAllWorkByTag(TAG_SCHEDULE)
 
         fun cancelAll(context: Context) {
-            // Cancel up to 10 possible schedules
-            (0..9).forEach { cancelOne(context, it) }
+            cancelIntervalWork(context)
+            cancelScheduleWork(context)
         }
 
         private fun calcDelayMs(hour: Int, minute: Int): Long {
@@ -119,10 +170,15 @@ class VerseNotificationWorker @AssistedInject constructor(
             }
             return target.timeInMillis - now.timeInMillis
         }
+
+        private const val TAG_INTERVAL  = "interval_notification"
+        private const val TAG_SCHEDULE  = "schedule_notification"
     }
 }
 
-// ── DailyVerseWorker (widget refresh) ────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+// Daily Widget Refresh Worker
+// ══════════════════════════════════════════════════════════════════
 @HiltWorker
 class DailyVerseWorker @AssistedInject constructor(
     @Assisted private val context: Context,
@@ -147,7 +203,9 @@ class DailyVerseWorker @AssistedInject constructor(
         fun schedule(context: Context) {
             val request = PeriodicWorkRequestBuilder<DailyVerseWorker>(1, TimeUnit.DAYS)
                 .setInitialDelay(calcDelayToMidnight(), TimeUnit.MILLISECONDS)
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.NOT_REQUIRED).build())
+                .setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.NOT_REQUIRED)
+                    .build())
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
@@ -165,17 +223,20 @@ class DailyVerseWorker @AssistedInject constructor(
     }
 }
 
-// ── Boot Receiver ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+// Boot Receiver — reschedule on device restart
+// ══════════════════════════════════════════════════════════════════
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             DailyVerseWorker.schedule(context)
-            // Note: notification schedules are re-scheduled via ScriptureApp on next launch
         }
     }
 }
 
-// ── Notification Helper ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+// Notification Helpers
+// ══════════════════════════════════════════════════════════════════
 fun sendVerseNotification(
     context: Context,
     verseText: String,
@@ -196,22 +257,33 @@ fun sendVerseNotification(
         .setSmallIcon(android.R.drawable.ic_menu_info_details)
         .setContentTitle(title)
         .setContentText(reference)
-        .setStyle(NotificationCompat.BigTextStyle().bigText("\u201C$verseText\u201D\n\u2014 $reference"))
+        .setStyle(NotificationCompat.BigTextStyle()
+            .bigText("\u201C$verseText\u201D\n\u2014 $reference"))
         .setContentIntent(pending)
         .setAutoCancel(true)
-        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .build()
     try {
         NotificationManagerCompat.from(context).notify(notifId, notification)
-    } catch (e: SecurityException) { /* permission not granted */ }
+    } catch (e: SecurityException) { /* POST_NOTIFICATIONS not granted */ }
 }
 
-fun createNotificationChannel(context: Context, channelId: String = VerseNotificationWorker.CHANNEL_ID) {
+fun createNotificationChannel(
+    context: Context,
+    channelId: String = VerseNotificationWorker.CHANNEL_ID
+) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val channel = NotificationChannel(
-            channelId, "Scripture Verses",
-            NotificationManager.IMPORTANCE_DEFAULT
-        ).apply { description = "Bible verse notifications" }
-        context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            channelId,
+            "Scripture Verses",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Bible verse notifications"
+            enableLights(true)
+            enableVibration(true)
+        }
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
     }
 }

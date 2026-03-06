@@ -198,7 +198,7 @@ class SettingsViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
     val notificationFrequency: StateFlow<NotificationFrequency> = preferences.notificationFrequency
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NotificationFrequency.ONCE)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), NotificationFrequency.ONCE_DAILY)
 
     val notificationHour: StateFlow<Int> = preferences.notificationHour
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 8)

@@ -75,9 +75,78 @@ enum class WidgetContentType(val displayName: String) {
     VERSE_OF_WEEK("Verse of the Week"), MEMORIZATION("Memorization Mode")
 }
 
-enum class NotificationFrequency(val displayName: String, val timesPerDay: Int) {
-    ONCE("Once a day", 1), TWICE("Twice a day", 2),
-    THREE_TIMES("3 times a day", 3), HOURLY("Every few hours", 6), CUSTOM("Custom schedule", 0)
+enum class NotificationFrequency(
+    val displayName: String,
+    val subtitle: String,
+    val emoji: String,
+    val intervalHours: Int,   // 0 = custom schedule mode
+    val timesPerDay: Int
+) {
+    EVERY_30_MIN(
+        "Every 30 Minutes", "Verse every half hour",         "⚡", 0, 48
+    ),
+    HOURLY(
+        "Every Hour",        "A new verse each hour",        "🕐", 1, 24
+    ),
+    EVERY_2_HOURS(
+        "Every 2 Hours",     "Morning through evening",      "🕑", 2, 12
+    ),
+    EVERY_4_HOURS(
+        "Every 4 Hours",     "6am · 10am · 2pm · 6pm · 10pm","🕓", 4, 6
+    ),
+    EVERY_6_HOURS(
+        "Every 6 Hours",     "4 verses spread across the day","🕕", 6, 4
+    ),
+    TWICE_DAILY(
+        "Twice a Day",       "Morning & evening",            "🌅", 12, 2
+    ),
+    ONCE_DAILY(
+        "Once a Day",        "One verse at your chosen time","☀️", 24, 1
+    ),
+    CUSTOM(
+        "Custom Schedule",   "Pick your own times manually", "🎛️", 0, 0
+    );
+
+    // Generate evenly-spaced schedules starting from a given wake hour
+    fun generateSchedules(wakeHour: Int = 7, category: VerseCategory = VerseCategory.ALL): List<NotificationSchedule> {
+        if (this == CUSTOM || intervalHours == 0 && this != EVERY_30_MIN) return emptyList()
+        val labels = mapOf(
+            0..5   to "Night",   6..8  to "Morning", 9..11  to "Mid-Morning",
+            12..13 to "Midday",  14..16 to "Afternoon", 17..19 to "Evening",
+            20..21 to "Night",   22..23 to "Late Night"
+        )
+        fun labelFor(h: Int) = labels.entries.firstOrNull { h in it.key }?.value ?: "Verse"
+        return when (this) {
+            EVERY_30_MIN -> (0 until 16).map { i ->
+                val totalMinutes = wakeHour * 60 + i * 30
+                NotificationSchedule(i, totalMinutes / 60 % 24, totalMinutes % 60, true, category, "Verse ${i + 1}")
+            }
+            HOURLY -> (0 until 12).map { i ->
+                val h = (wakeHour + i) % 24
+                NotificationSchedule(i, h, 0, true, category, labelFor(h))
+            }
+            EVERY_2_HOURS -> (0 until 12).map { i ->
+                val h = (wakeHour + i * 2) % 24
+                NotificationSchedule(i, h, 0, true, category, labelFor(h))
+            }
+            EVERY_4_HOURS -> (0 until 6).map { i ->
+                val h = (wakeHour + i * 4) % 24
+                NotificationSchedule(i, h, 0, true, category, labelFor(h))
+            }
+            EVERY_6_HOURS -> (0 until 4).map { i ->
+                val h = (wakeHour + i * 6) % 24
+                NotificationSchedule(i, h, 0, true, category, labelFor(h))
+            }
+            TWICE_DAILY -> listOf(
+                NotificationSchedule(0, wakeHour, 0,          true, category, "Morning"),
+                NotificationSchedule(1, (wakeHour + 12) % 24, 0, true, category, "Evening")
+            )
+            ONCE_DAILY -> listOf(
+                NotificationSchedule(0, wakeHour, 0, true, category, "Daily Verse")
+            )
+            else -> emptyList()
+        }
+    }
 }
 
 enum class WidgetTextAlign(val displayName: String) { CENTER("Center"), LEFT("Left"), RIGHT("Right") }

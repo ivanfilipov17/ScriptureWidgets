@@ -111,7 +111,7 @@ class PreferencesRepository @Inject constructor(
 
     val notificationFrequency: Flow<NotificationFrequency> = context.dataStore.data
         .catch { emit(emptyPreferences()) }
-        .map { safe(it[Keys.NOTIFICATION_FREQUENCY]) { s -> NotificationFrequency.valueOf(s) } ?: NotificationFrequency.ONCE }
+        .map { safe(it[Keys.NOTIFICATION_FREQUENCY]) { s -> NotificationFrequency.valueOf(s) } ?: NotificationFrequency.ONCE_DAILY }
 
     val notificationHour: Flow<Int> = context.dataStore.data
         .catch { emit(emptyPreferences()) }.map { it[Keys.NOTIFICATION_HOUR] ?: 8 }
@@ -153,7 +153,7 @@ class PreferencesRepository @Inject constructor(
 
     suspend fun saveNotificationSettings(
         enabled: Boolean, hour: Int, minute: Int = 0,
-        frequency: NotificationFrequency = NotificationFrequency.ONCE,
+        frequency: NotificationFrequency = NotificationFrequency.ONCE_DAILY,
         category: VerseCategory = VerseCategory.ALL
     ) {
         context.dataStore.edit { p ->

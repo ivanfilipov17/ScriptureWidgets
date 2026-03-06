@@ -217,118 +217,278 @@ private fun WidgetTab(cfg: WidgetConfig, premium: Boolean, vm: SettingsViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun NotificationsTab(
-    enabled: Boolean,
+    enabled:   Boolean,
     schedules: List<NotificationSchedule>,
     frequency: NotificationFrequency,
-    notifCat: VerseCategory,
-    premium: Boolean,
-    vm: SettingsViewModel
+    notifCat:  VerseCategory,
+    premium:   Boolean,
+    vm:        SettingsViewModel
 ) {
-    var showAddDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-
-        // Master toggle
-        SettingsCard("Verse Notifications", Icons.Default.NotificationsActive) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        // ── Master Toggle ─────────────────────────────────────────
+        Card(
+            Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (enabled)
+                    MaterialTheme.colorScheme.primaryContainer
+                else
+                    MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(20.dp)
+        ) {
+            Row(
+                Modifier.padding(horizontal = 20.dp, vertical = 16.dp).fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Enable Notifications", style = MaterialTheme.typography.bodyMedium)
-                    Text("Get random Bible verses at your chosen times", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(.6f))
+                    Text(
+                        if (enabled) "Notifications On" else "Notifications Off",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (enabled) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (enabled) "Receiving ${frequency.displayName.lowercase()}"
+                        else "Tap to enable verse reminders",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (enabled) MaterialTheme.colorScheme.onPrimaryContainer.copy(.75f)
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(.6f)
+                    )
                 }
-                Switch(checked = enabled, onCheckedChange = {
-                    val hour = schedules.firstOrNull()?.hour ?: 8
-                    vm.updateNotificationSettings(it, hour)
-                })
+                Switch(
+                    checked  = enabled,
+                    onCheckedChange = {
+                        val hour = schedules.firstOrNull()?.hour ?: 8
+                        vm.updateNotificationSettings(it, hour)
+                        if (it) {
+                            if (frequency != NotificationFrequency.CUSTOM)
+                                com.scripturewidgets.worker.VerseNotificationWorker
+                                    .scheduleByFrequency(context, frequency, notifCat)
+                            else
+                                com.scripturewidgets.worker.VerseNotificationWorker
+                                    .scheduleAll(context, schedules)
+                        } else {
+                            com.scripturewidgets.worker.VerseNotificationWorker.cancelAll(context)
+                        }
+                    }
+                )
             }
         }
 
-        AnimatedVisibility(enabled, enter = expandVertically(), exit = shrinkVertically()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        AnimatedVisibility(visible = enabled) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
 
-                // Frequency
+                // ── Frequency Picker ──────────────────────────────
                 SettingsCard("How Often", Icons.Default.Schedule) {
-                    NotificationFrequency.entries.forEach { freq ->
-                        Row(Modifier.fillMaxWidth().clickable {
-                            vm.updateNotificationSettings(true, schedules.firstOrNull()?.hour ?: 8,
-                                schedules.firstOrNull()?.minute ?: 0, freq)
-                        }.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = frequency == freq, onClick = {
-                                vm.updateNotificationSettings(true, schedules.firstOrNull()?.hour ?: 8,
-                                    schedules.firstOrNull()?.minute ?: 0, freq)
-                            })
-                            Spacer(Modifier.width(4.dp))
-                            Column {
-                                Text(freq.displayName, style = MaterialTheme.typography.bodyMedium)
-                                if (freq == NotificationFrequency.CUSTOM)
-                                    Text("Set exact times below", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurface.copy(.5f))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Choose how frequently you receive Bible verses",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(.6f)
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        NotificationFrequency.entries.forEach { freq ->
+                            FrequencyCard(
+                                freq       = freq,
+                                isSelected = frequency == freq,
+                                onSelect   = {
+                                    vm.updateNotificationSettings(
+                                        true,
+                                        schedules.firstOrNull()?.hour ?: 8,
+                                        schedules.firstOrNull()?.minute ?: 0,
+                                        freq
+                                    )
+                                    if (freq != NotificationFrequency.CUSTOM) {
+                                        com.scripturewidgets.worker.VerseNotificationWorker
+                                            .scheduleByFrequency(context, freq, notifCat)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+
+                // ── Verse Category ────────────────────────────────
+                SettingsCard("Verse Type", Icons.Default.AutoAwesome) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "Which type of verses do you want in notifications?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(.6f)
+                        )
+                        androidx.compose.foundation.lazy.LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(VerseCategory.entries.size) { idx ->
+                                val cat = VerseCategory.entries[idx]
+                                FilterChip(
+                                    selected = notifCat == cat,
+                                    onClick  = {
+                                        vm.updateNotificationSettings(
+                                            true,
+                                            schedules.firstOrNull()?.hour ?: 8,
+                                            schedules.firstOrNull()?.minute ?: 0,
+                                            frequency,
+                                            cat
+                                        )
+                                    },
+                                    label = { Text(cat.displayName, style = MaterialTheme.typography.labelSmall) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(cat.colorHex).copy(.2f),
+                                        selectedLabelColor     = Color(cat.colorHex)
+                                    )
+                                )
                             }
                         }
                     }
                 }
 
-                // Category for notifications
-                SettingsCard("Verse Type for Notifications", Icons.Default.AutoAwesome) {
-                    Text("Choose which verses to receive in notifications",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.6f))
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(VerseCategory.entries) { cat ->
-                            FilterChip(selected = notifCat == cat, onClick = {
-                                vm.updateNotificationSettings(true, schedules.firstOrNull()?.hour ?: 8,
-                                    category = cat)
-                            }, label = { Text(cat.displayName, style = MaterialTheme.typography.labelSmall) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(cat.colorHex).copy(.85f),
-                                selectedLabelColor = Color.White))
+                // ── Custom Schedule (only when CUSTOM mode) ────────
+                AnimatedVisibility(visible = frequency == NotificationFrequency.CUSTOM) {
+                    CustomScheduleSection(schedules, premium, vm)
+                }
+
+                // ── Preview card ──────────────────────────────────
+                NotificationPreviewCard(frequency, notifCat)
+            }
+        }
+
+        Spacer(Modifier.height(80.dp))
+    }
+}
+
+// ── Frequency Option Card ─────────────────────────────────────────
+@Composable
+private fun FrequencyCard(freq: NotificationFrequency, isSelected: Boolean, onSelect: () -> Unit) {
+    Card(
+        onClick = onSelect,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(.5f)
+        ),
+        border = if (isSelected)
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        else null,
+        shape = RoundedCornerShape(14.dp)
+    ) {
+        Row(
+            Modifier.padding(14.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(freq.emoji, fontSize = 24.sp)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    freq.displayName,
+                    style     = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    color     = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    freq.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(.7f)
+                            else MaterialTheme.colorScheme.onSurface.copy(.55f)
+                )
+            }
+            if (freq.timesPerDay > 0) {
+                Surface(shape = RoundedCornerShape(20.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outline.copy(.15f)) {
+                    Text(
+                        "${freq.timesPerDay}×",
+                        Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        style     = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color     = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurface.copy(.6f)
+                    )
+                }
+            }
+            if (isSelected) {
+                Icon(Icons.Default.CheckCircle, null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+// ── Custom Schedule Section ───────────────────────────────────────
+@Composable
+private fun CustomScheduleSection(
+    schedules: List<NotificationSchedule>,
+    premium:   Boolean,
+    vm:        SettingsViewModel
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    SettingsCard("Custom Times", Icons.Default.AccessTime) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "Add specific times to receive a verse. Each slot can have a different category.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(.6f)
+            )
+            Spacer(Modifier.height(4.dp))
+
+            if (schedules.isEmpty()) {
+                Box(
+                    Modifier.fillMaxWidth().height(80.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No times added yet. Tap + to add one.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(.4f)
+                    )
+                }
+            } else {
+                schedules.forEach { schedule ->
+                    ScheduleRow(
+                        schedule = schedule,
+                        onToggle = { enabled ->
+                            vm.toggleSchedule(schedule.id, enabled)
+                            if (enabled) com.scripturewidgets.worker.VerseNotificationWorker
+                                .scheduleOne(context, schedule)
+                            else com.scripturewidgets.worker.VerseNotificationWorker
+                                .cancelOne(context, schedule.id)
+                        },
+                        onDelete = {
+                            vm.removeNotificationSchedule(schedule.id)
+                            com.scripturewidgets.worker.VerseNotificationWorker
+                                .cancelOne(context, schedule.id)
                         }
-                    }
-                }
-
-                // Schedule list
-                SettingsCard("Notification Times", Icons.Default.AccessTime) {
-                    Text("Add multiple times throughout your day",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(.6f))
-                    Spacer(Modifier.height(8.dp))
-
-                    schedules.forEach { schedule ->
-                        ScheduleRow(
-                            schedule  = schedule,
-                            onToggle  = { vm.toggleSchedule(schedule.id, it) },
-                            onDelete  = { vm.removeNotificationSchedule(schedule.id) }
-                        )
-                        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                    }
-
-                    val canAdd = schedules.size < (if (premium) 10 else 3)
-                    OutlinedButton(
-                        onClick  = { if (canAdd) showAddDialog = true },
-                        enabled  = canAdd,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (canAdd) "Add Time" else "Upgrade for more times")
-                    }
+                    )
                 }
             }
-        }
 
-        // Info card
-        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(.4f))) {
-            Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Top) {
-                Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Text("A random Bible verse is sent at each scheduled time. " +
-                    "You can set a different verse category per schedule.",
-                    style = MaterialTheme.typography.bodySmall)
+            val canAdd = schedules.size < (if (premium) 10 else 3)
+            OutlinedButton(
+                onClick  = { showAddDialog = true },
+                enabled  = canAdd,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Add, null)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    if (canAdd) "Add Time"
+                    else "Upgrade for more slots (${schedules.size}/${if (premium) 10 else 3})"
+                )
             }
         }
-
-        Spacer(Modifier.height(32.dp))
     }
 
     if (showAddDialog) {
@@ -340,104 +500,249 @@ private fun NotificationsTab(
     }
 }
 
+// ── Schedule Row ──────────────────────────────────────────────────
 @Composable
-private fun ScheduleRow(schedule: NotificationSchedule, onToggle: (Boolean) -> Unit, onDelete: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Switch(checked = schedule.enabled, onCheckedChange = onToggle, modifier = Modifier.scale(0.85f))
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = "%02d:%02d".format(schedule.hour, schedule.minute),
-                style = MaterialTheme.typography.titleMedium,
-                color = if (schedule.enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(.4f)
+private fun ScheduleRow(
+    schedule: NotificationSchedule,
+    onToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit
+) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape  = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (schedule.enabled)
+                MaterialTheme.colorScheme.surface
+            else
+                MaterialTheme.colorScheme.surfaceVariant.copy(.4f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (schedule.enabled) MaterialTheme.colorScheme.outlineVariant
+            else MaterialTheme.colorScheme.outlineVariant.copy(.3f)
+        )
+    ) {
+        Row(
+            Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Switch(
+                checked         = schedule.enabled,
+                onCheckedChange = onToggle,
+                modifier        = Modifier.scale(0.85f)
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = CircleShape, color = Color(schedule.category.colorHex).copy(.15f)) {
-                    Text(schedule.category.displayName, Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall, color = Color(schedule.category.colorHex))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "%02d:%02d".format(schedule.hour, schedule.minute),
+                    style      = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color      = if (schedule.enabled) MaterialTheme.colorScheme.onSurface
+                                 else MaterialTheme.colorScheme.onSurface.copy(.4f)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment     = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(schedule.category.colorHex).copy(.15f)
+                    ) {
+                        Text(
+                            schedule.category.displayName,
+                            Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(schedule.category.colorHex)
+                        )
+                    }
+                    if (schedule.label.isNotBlank()) {
+                        Text(
+                            schedule.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(.5f)
+                        )
+                    }
                 }
-                if (schedule.label.isNotBlank())
-                    Text(schedule.label, style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(.5f))
             }
-        }
-        IconButton(onClick = onDelete) {
-            Icon(Icons.Default.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error.copy(.7f), modifier = Modifier.size(20.dp))
+            IconButton(onClick = onDelete) {
+                Icon(
+                    Icons.Default.DeleteOutline, null,
+                    tint     = MaterialTheme.colorScheme.error.copy(.7f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ── Notification Preview Card ─────────────────────────────────────
 @Composable
-private fun AddScheduleDialog(nextId: Int, onAdd: (NotificationSchedule) -> Unit, onDismiss: () -> Unit) {
+private fun NotificationPreviewCard(frequency: NotificationFrequency, category: VerseCategory) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape  = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment     = Alignment.CenterVertically
+            ) {
+                Surface(shape = CircleShape, color = Color.White.copy(.15f), modifier = Modifier.size(32.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Text("✝", fontSize = 14.sp) }
+                }
+                Column {
+                    Text("Scripture Widgets", style = MaterialTheme.typography.labelMedium,
+                        color = Color.White, fontWeight = FontWeight.SemiBold)
+                    Text("now", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(.5f))
+                }
+            }
+            Text(
+                frequency.displayName,
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White.copy(.7f),
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "\u201CFor I know the plans I have for you...\u201D",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Serif,
+                fontStyle  = androidx.compose.ui.text.font.FontStyle.Italic
+            )
+            Text(
+                "\u2014 Jeremiah 29:11 (${category.displayName})",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(.6f)
+            )
+        }
+    }
+}
+
+// ── Add Schedule Dialog ───────────────────────────────────────────
+@Composable
+private fun AddScheduleDialog(
+    nextId:    Int,
+    onAdd:     (NotificationSchedule) -> Unit,
+    onDismiss: () -> Unit
+) {
     var hour     by remember { mutableStateOf(8) }
     var minute   by remember { mutableStateOf(0) }
     var label    by remember { mutableStateOf("") }
     var category by remember { mutableStateOf(VerseCategory.ALL) }
 
+    val autoLabel = when (hour) {
+        in 5..8   -> "Morning"
+        in 9..11  -> "Mid-Morning"
+        in 12..13 -> "Midday"
+        in 14..16 -> "Afternoon"
+        in 17..19 -> "Evening"
+        in 20..21 -> "Night"
+        else      -> "Late Night"
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add Notification Time") },
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(Icons.Default.AddAlarm, null, tint = MaterialTheme.colorScheme.primary)
+                Text("Add Notification Time", style = MaterialTheme.typography.titleLarge)
+            }
+        },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Choose when to receive a verse", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(.6f))
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
-                // Hour / Minute pickers
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Hour", style = MaterialTheme.typography.labelMedium)
-                        Slider(value = hour.toFloat(), onValueChange = { hour = it.toInt() },
-                            valueRange = 0f..23f, steps = 22)
-                        Text("%02d:00".format(hour), style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text("Minute", style = MaterialTheme.typography.labelMedium)
-                        Slider(value = minute.toFloat(), onValueChange = { minute = (it.toInt() / 5) * 5 },
-                            valueRange = 0f..55f, steps = 10)
-                        Text(":%02d".format(minute), style = MaterialTheme.typography.titleMedium,
-                            textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-                    }
+                // Time display
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "%02d:%02d".format(hour, minute),
+                        style      = MaterialTheme.typography.displaySmall,
+                        fontWeight = FontWeight.Bold,
+                        color      = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                 }
 
-                // Label
-                OutlinedTextField(value = label, onValueChange = { label = it },
-                    label = { Text("Label (optional)") },
-                    placeholder = { Text("e.g. Morning Devotion") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                // Hour slider
+                Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Hour", style = MaterialTheme.typography.labelMedium)
+                        Text("%02d:00".format(hour), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(value = hour.toFloat(), onValueChange = { hour = it.toInt() },
+                        valueRange = 0f..23f, steps = 22)
+                }
+
+                // Minute slider
+                Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Minute", style = MaterialTheme.typography.labelMedium)
+                        Text(":%02d".format(minute), style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    }
+                    Slider(value = minute.toFloat(), onValueChange = { minute = (it / 5).toInt() * 5 },
+                        valueRange = 0f..55f, steps = 10)
+                }
+
+                // Optional label
+                OutlinedTextField(
+                    value       = label,
+                    onValueChange = { label = it },
+                    label       = { Text("Label (optional)") },
+                    placeholder = { Text(autoLabel) },
+                    singleLine  = true,
+                    modifier    = Modifier.fillMaxWidth()
+                )
 
                 // Category
                 Text("Verse Category", style = MaterialTheme.typography.labelMedium)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(VerseCategory.entries) { cat ->
-                        FilterChip(selected = category == cat, onClick = { category = cat },
-                            label = { Text(cat.displayName, style = MaterialTheme.typography.labelSmall) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(cat.colorHex).copy(.85f),
-                                selectedLabelColor = Color.White))
+                androidx.compose.foundation.lazy.LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(VerseCategory.entries.size) { idx ->
+                        val cat = VerseCategory.entries[idx]
+                        FilterChip(
+                            selected  = category == cat,
+                            onClick   = { category = cat },
+                            label     = { Text(cat.displayName, style = MaterialTheme.typography.labelSmall) },
+                            colors    = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(cat.colorHex).copy(.2f),
+                                selectedLabelColor     = Color(cat.colorHex)
+                            )
+                        )
                     }
                 }
             }
         },
         confirmButton = {
             Button(onClick = {
-                onAdd(NotificationSchedule(nextId, hour, minute, true, category,
-                    label.ifBlank { getDefaultLabel(hour) }))
-            }) { Text("Add") }
+                onAdd(NotificationSchedule(
+                    id       = nextId,
+                    hour     = hour,
+                    minute   = minute,
+                    enabled  = true,
+                    category = category,
+                    label    = label.ifBlank { autoLabel }
+                ))
+            }) {
+                Icon(Icons.Default.Check, null)
+                Spacer(Modifier.width(4.dp))
+                Text("Add")
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
     )
 }
 
-private fun getDefaultLabel(hour: Int) = when (hour) {
-    in 5..11  -> "Morning"
-    in 12..13 -> "Midday"
-    in 14..17 -> "Afternoon"
-    in 18..21 -> "Evening"
-    else      -> "Night"
-}
-
+// ═══════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════
 // PROFILE TAB
 // ══════════════════════════════════════════════════════════════════
