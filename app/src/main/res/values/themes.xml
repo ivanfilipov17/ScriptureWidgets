@@ -1,0 +1,15 @@
+<!-- res/values/themes.xml -->
+<resources>
+
+    <style name="Theme.ScriptureWidgets" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Customize your theme here -->
+    </style>
+
+    <!-- Splash screen theme using core-splashscreen -->
+    <style name="Theme.ScriptureWidgets.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.ScriptureWidgets</item>
+    </style>
+
+</resources>

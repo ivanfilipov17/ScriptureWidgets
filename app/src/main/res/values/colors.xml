@@ -1,0 +1,8 @@
+<!-- res/values/colors.xml -->
+<resources>
+    <color name="splash_background">#614385</color>
+    <color name="primary_purple">#614385</color>
+    <color name="primary_purple_light">#9C6BB5</color>
+    <color name="secondary_gold">#FFD700</color>
+    <color name="surface_dark">#1A1A2E</color>
+</resources>

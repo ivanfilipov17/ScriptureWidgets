@@ -1,0 +1,15 @@
+<!-- res/xml/small_widget_info.xml -->
+<!-- AppWidget provider info for the Small (2x2) widget -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:maxResizeWidth="400dp"
+    android:maxResizeHeight="400dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="86400000"
+    android:widgetCategory="home_screen"
+    android:previewLayout="@layout/widget_preview"
+    android:description="@string/widget_small_desc"
+    android:widgetFeatures="reconfigurable" />

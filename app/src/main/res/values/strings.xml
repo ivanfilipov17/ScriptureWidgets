@@ -1,0 +1,10 @@
+<!-- res/values/strings.xml -->
+<resources>
+    <string name="app_name">Scripture Widgets</string>
+    <string name="widget_small_label">Scripture (Small)</string>
+    <string name="widget_medium_label">Scripture (Medium)</string>
+    <string name="widget_large_label">Scripture (Large)</string>
+    <string name="widget_small_desc">A small daily Bible verse widget</string>
+    <string name="widget_medium_desc">A medium daily Bible verse widget</string>
+    <string name="widget_large_desc">A large daily Bible verse widget with refresh button</string>
+</resources>
