@@ -47,8 +47,7 @@ class TodayViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             preferences.updateStreak()
-            val randomize = preferences.randomizeOnOpen.first()
-            if (randomize) loadRandomVerse() else loadDailyVerse()
+            loadRandomVerse()  // shuffle queue ensures no repeats until all seen
         }
     }
 

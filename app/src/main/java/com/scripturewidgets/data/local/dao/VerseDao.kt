@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface VerseDao {
 
-    // â”€â”€ Verse queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Verse queries ──────────────────────────────────────────────
 
     @Query("SELECT * FROM verses")
     fun getAllVerses(): Flow<List<VerseEntity>>
@@ -22,9 +22,9 @@ interface VerseDao {
 
     @Query("""
         SELECT * FROM verses 
-        WHERE text LIKE ''%'' || :query || ''%''
-        OR book LIKE ''%'' || :query || ''%''
-        OR category LIKE ''%'' || :query || ''%''
+        WHERE text LIKE '%' || :query || '%'
+        OR book LIKE '%' || :query || '%'
+        OR category LIKE '%' || :query || '%'
     """)
     fun searchVerses(query: String): Flow<List<VerseEntity>>
 
@@ -34,6 +34,13 @@ interface VerseDao {
 
     @Query("SELECT * FROM verses ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomVerse(): VerseEntity?
+
+    // Shuffle queue support — returns all IDs (or IDs by category) for client-side shuffle
+    @Query("SELECT id FROM verses")
+    suspend fun getAllVerseIds(): List<String>
+
+    @Query("SELECT id FROM verses WHERE category = :category")
+    suspend fun getVerseIdsByCategory(category: String): List<String>
 
     @Query("SELECT * FROM verses WHERE category = :category ORDER BY RANDOM() LIMIT 1")
     suspend fun getRandomVerseByCategory(category: String): VerseEntity?
@@ -47,7 +54,7 @@ interface VerseDao {
     @Query("SELECT COUNT(*) FROM verses")
     suspend fun getVerseCount(): Int
 
-    // â”€â”€ Favorites â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Favorites ─────────────────────────────────────────────────
 
     @Query("""
         SELECT v.* FROM verses v 

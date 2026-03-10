@@ -13,7 +13,13 @@ plugins {
 android {
     namespace = "com.scripturewidgets"
     compileSdk = 35
-
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:\\Users\\ivanf\\AndroidStudioProjects\\ScriptureWidgets\\scripture-widgets.jks")
+            storePassword = "lepotan"
+            keyAlias = "widget"
+            keyPassword = "lepotan"
+        }
     defaultConfig {
         applicationId = "com.scripturewidgets"
         minSdk = 26          // Android 8.0 â€” covers 95%+ of active devices
@@ -32,6 +38,7 @@ android {
             arg("room.schemaLocation", "$projectDir/schemas")
         }
     }
+
 
     buildTypes {
         release {
@@ -129,4 +136,4 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-}
+}}
